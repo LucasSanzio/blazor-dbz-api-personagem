@@ -1,0 +1,130 @@
+@page "/"
+@using System.Net
+@using System.Text.Json
+@using BlazorDbzPersonagem.Models
+@inject HttpClient Http
+
+<PageTitle>Personagens | Dragon Ball</PageTitle>
+<header>
+    <p class="eyebrow">DRAGON BALL · EXPLORADOR DA API</p>
+    <h1>Encontre seu personagem</h1>
+    <p>Consulte o planeta de origem e conheça as transformações pelo ID.</p>
+</header>
+<form @onsubmit="SearchAsync" @onsubmit:preventDefault>
+    <label for="character-id">ID do personagem</label>
+    <div class="search-row">
+        <input id="character-id" type="number" min="1" step="1" placeholder="Ex.: 1" @bind="idInput" disabled="@loading" />
+        <button type="submit" disabled="@loading">@(loading ? "Buscando…" : "Buscar personagem")</button>
+    </div>
+    <small>Experimente 1 para Goku ou 2 para Vegeta.</small>
+</form>
+<div aria-live="polite" aria-atomic="true">
+    @if (loading)
+    {
+        <p class="notice" role="status">Consultando a Dragon Ball API…</p>
+    }
+    else if (error is not null)
+    {
+        <p class="notice error" role="alert">@error</p>
+    }
+</div>
+@if (character is not null)
+{
+    <section class="character-card" aria-label="Personagem encontrado">
+        @if (!string.IsNullOrWhiteSpace(character.Image))
+        {
+            <img class="portrait" src="@character.Image" alt="@character.Name" />
+        }
+        <div>
+            <p class="eyebrow">PERSONAGEM #@character.Id</p>
+            <h2>@character.Name</h2>
+            <h3>Planeta de origem</h3>
+            <p>@(string.IsNullOrWhiteSpace(character.OriginPlanet?.Name) ? "Não informado pela API." : character.OriginPlanet.Name)</p>
+            @if (character.OriginPlanet?.IsDestroyed == true)
+            {
+                <p class="planet-note">Planeta destruído no universo da série.</p>
+            }
+        </div>
+    </section>
+    <section aria-labelledby="transformations-title">
+        <h2 id="transformations-title">Transformações <span class="count">@(character.Transformations?.Count ?? 0)</span></h2>
+        @if (character.Transformations is not { Count: > 0 })
+        {
+            <p class="notice">Nenhuma transformação cadastrada para este personagem.</p>
+        }
+        else
+        {
+            <div class="transformations">
+                @foreach (var transformation in character.Transformations)
+                {
+                    <article class="transformation" @key="transformation.Id">
+                        @if (!string.IsNullOrWhiteSpace(transformation.Image))
+                        {
+                            <img src="@transformation.Image" alt="@transformation.Name" loading="lazy" />
+                        }
+                        <h3>@transformation.Name</h3>
+                        <p>Ki: @(transformation.Ki ?? "Não informado")</p>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+}
+else if (!loading && error is null)
+{
+    <p class="notice">Digite um ID e inicie sua busca.</p>
+}
+<footer>Dados e imagens: <a href="https://web.dragonball-api.com/" target="_blank" rel="noopener noreferrer">Dragon Ball API</a>.</footer>
+
+@code {
+    private string idInput = "1";
+    private Character? character;
+    private bool loading;
+    private string? error;
+
+    private async Task SearchAsync()
+    {
+        if (loading) return;
+        character = null;
+        error = null;
+        if (!int.TryParse(idInput, out var id) || id <= 0)
+        {
+            error = "Informe um ID inteiro maior que zero.";
+            return;
+        }
+        loading = true;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            using var response = await Http.GetAsync($"https://dragonball-api.com/api/characters/{id}", timeout.Token);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                error = "Personagem não encontrado. Tente outro ID.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            character = await response.Content.ReadFromJsonAsync<Character>(cancellationToken: timeout.Token);
+            if (character is null || string.IsNullOrWhiteSpace(character.Name))
+            {
+                character = null;
+                error = "A API retornou dados incompletos. Tente novamente.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            error = "A consulta demorou demais. Tente novamente.";
+        }
+        catch (HttpRequestException)
+        {
+            error = "Não foi possível consultar a API. Verifique sua conexão e tente novamente.";
+        }
+        catch (JsonException)
+        {
+            error = "A resposta da API não pôde ser interpretada. Tente novamente mais tarde.";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}
